@@ -1,116 +1,100 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2575.7">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica}
-    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; min-height: 14.0px}
+  <meta charset="utf-8" />
+  <title>NBA Top Props</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0d1117;color:#e6edf3;margin:0}
+    .wrap{max-width:1100px;margin:40px auto;padding:0 16px}
+    h1{color:#67b7ff;margin:0 0 8px}
+    .sub{color:#9da7b3;margin:0 0 20px}
+    .controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+    input,select,button{background:#0b1620;color:#e6edf3;border:1px solid #263241;border-radius:8px;padding:8px 10px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left;font-size:14px}
+    th{color:#9da7b3;font-weight:600}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#0b2f44;color:#8edaff;font-size:12px}
   </style>
 </head>
 <body>
-<p class="p1">&lt;!DOCTYPE html&gt;</p>
-<p class="p1">&lt;html&gt;</p>
-<p class="p1">&lt;head&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;meta charset="utf-8" /&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;title&gt;NBA Top Props&lt;/title&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;meta name="viewport" content="width=device-width, initial-scale=1" /&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;style&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0d1117;color:#e6edf3;margin:0}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.wrap{max-width:1100px;margin:40px auto;padding:0 16px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>h1{color:#67b7ff;margin:0 0 8px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.sub{color:#9da7b3;margin:0 0 20px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.controls{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>input,select,button{background:#0b1620;color:#e6edf3;border:1px solid #263241;border-radius:8px;padding:8px 10px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>table{width:100%;border-collapse:collapse;margin-top:8px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left;font-size:14px}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>th{color:#9da7b3;font-weight:600}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#0b2f44;color:#8edaff;font-size:12px}</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;/style&gt;</p>
-<p class="p1">&lt;/head&gt;</p>
-<p class="p1">&lt;body&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;div class="wrap"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;h1&gt;NBA Top Props — Today&lt;/h1&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;p class="sub"&gt;Ranked by 0.7×Hit% + 0.3×EV (DK &amp;amp; FD)&lt;/p&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;div class="controls"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;label&gt;Markets:</p>
-<p class="p1"><span class="Apple-converted-space">        </span>&lt;select id="markets" multiple size="5"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;option value="player_points" selected&gt;player_points&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;option value="player_rebounds" selected&gt;player_rebounds&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;option value="player_assists" selected&gt;player_assists&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;option value="player_steals"&gt;player_steals&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;option value="player_blocks"&gt;player_blocks&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">        </span>&lt;/select&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;label&gt;Top K:</p>
-<p class="p1"><span class="Apple-converted-space">        </span>&lt;input id="topk" type="number" value="75" min="10" max="300"/&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;/label&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;button id="refresh"&gt;Refresh&lt;/button&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;table id="tbl"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;thead&gt;</p>
-<p class="p1"><span class="Apple-converted-space">        </span>&lt;tr&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Game&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Book&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Player&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Market&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Line&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Pred&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Hit%&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;EV/$&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Score&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;th&gt;Injury&lt;/th&gt;</p>
-<p class="p1"><span class="Apple-converted-space">        </span>&lt;/tr&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;/thead&gt;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>&lt;tbody&gt;&lt;/tbody&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>&lt;/table&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;script&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const tblBody = document.querySelector("#tbl tbody");</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const btn = document.getElementById("refresh");</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const sel = document.getElementById("markets");</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const topk = document.getElementById("topk");</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>function selValues(el){</p>
-<p class="p1"><span class="Apple-converted-space">      </span>return Array.from(el.options).filter(o=&gt;o.selected).map(o=&gt;o.value).join(",");</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>async function load(){</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const url = `/api/props?topk=${encodeURIComponent(topk.value)}&amp;markets=${encodeURIComponent(selValues(sel))}`;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const res = await fetch(url);</p>
-<p class="p1"><span class="Apple-converted-space">      </span>const data = await res.json();</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">      </span>tblBody.innerHTML = "";</p>
-<p class="p1"><span class="Apple-converted-space">      </span>for (const r of data){</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const tr = document.createElement("tr");</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const hit = r.hit_prob==null ? "" : (r.hit_prob*100).toFixed(1)+"%";</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const ev = r.ev_per_$==null ? "" : r.ev_per_$.toFixed(3);</p>
-<p class="p1"><span class="Apple-converted-space">        </span>const score = r.score==null ? "" : r.score.toFixed(3);</p>
-<p class="p1"><span class="Apple-converted-space">        </span>tr.innerHTML = `</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.away} @ ${r.home}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.book}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.player}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.market}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.line ?? ""}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.pred_mean==null?"":r.pred_mean.toFixed(2)}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${hit}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${ev}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${score}&lt;/td&gt;</p>
-<p class="p1"><span class="Apple-converted-space">          </span>&lt;td&gt;${r.injury_status ? `&lt;span class="pill"&gt;${r.injury_status}&lt;/span&gt;` : ""}&lt;/td&gt;`;</p>
-<p class="p1"><span class="Apple-converted-space">        </span>tblBody.appendChild(tr);</p>
-<p class="p1"><span class="Apple-converted-space">      </span>}</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>btn.addEventListener("click", load);</p>
-<p class="p1"><span class="Apple-converted-space">    </span>load();</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;/script&gt;</p>
-<p class="p1">&lt;/body&gt;</p>
-<p class="p1">&lt;/html&gt;</p>
+  <div class="wrap">
+    <h1>NBA Top Props — Today</h1>
+    <p class="sub">Ranked by 0.7×Hit% + 0.3×EV (DK &amp; FD)</p>
+
+    <div class="controls">
+      <label>Markets:
+        <select id="markets" multiple size="5">
+          <option value="player_points" selected>player_points</option>
+          <option value="player_rebounds" selected>player_rebounds</option>
+          <option value="player_assists" selected>player_assists</option>
+          <option value="player_steals">player_steals</option>
+          <option value="player_blocks">player_blocks</option>
+        </select>
+      </label>
+      <label>Top K:
+        <input id="topk" type="number" value="75" min="10" max="300"/>
+      </label>
+      <button id="refresh">Refresh</button>
+    </div>
+
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Game</th>
+          <th>Book</th>
+          <th>Player</th>
+          <th>Market</th>
+          <th>Line</th>
+          <th>Pred</th>
+          <th>Hit%</th>
+          <th>EV/$</th>
+          <th>Score</th>
+          <th>Injury</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const tblBody = document.querySelector("#tbl tbody");
+    const btn = document.getElementById("refresh");
+    const sel = document.getElementById("markets");
+    const topk = document.getElementById("topk");
+
+    function selValues(el){
+      return Array.from(el.options).filter(o=>o.selected).map(o=>o.value).join(",");
+    }
+
+    async function load(){
+      const url = `/api/props?topk=${encodeURIComponent(topk.value)}&markets=${encodeURIComponent(selValues(sel))}`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      tblBody.innerHTML = "";
+      for (const r of data){
+        const tr = document.createElement("tr");
+        const hit = r.hit_prob==null ? "" : (r.hit_prob*100).toFixed(1)+"%";
+        const ev = r.ev_per_$==null ? "" : r.ev_per_$.toFixed(3);
+        const score = r.score==null ? "" : r.score.toFixed(3);
+        tr.innerHTML = `
+          <td>${r.away} @ ${r.home}</td>
+          <td>${r.book}</td>
+          <td>${r.player}</td>
+          <td>${r.market}</td>
+          <td>${r.line ?? ""}</td>
+          <td>${r.pred_mean==null?"":r.pred_mean.toFixed(2)}</td>
+          <td>${hit}</td>
+          <td>${ev}</td>
+          <td>${score}</td>
+          <td>${r.injury_status ? `<span class="pill">${r.injury_status}</span>` : ""}</td>`;
+        tblBody.appendChild(tr);
+      }
+    }
+
+    btn.addEventListener("click", load);
+    load();
+  </script>
 </body>
 </html>
