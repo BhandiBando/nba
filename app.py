@@ -400,6 +400,16 @@ def api_props_fast():
     if "error" in props.columns:
         return jsonify({"error": props.iloc[0]["error"]}), 502
     return jsonify(props.to_dict(orient="records"))
+@app.route("/api/props_fast")
+def api_props_fast():
+    markets = request.args.get(
+        "markets",
+        "player_points,player_rebounds,player_assists,player_steals,player_blocks"
+    ).split(",")
+    props = pull_dk_fd_player_props(markets=markets)
+    if "error" in props.columns:
+        return jsonify({"error": props.iloc[0]["error"]}), 502
+    return jsonify(props.to_dict(orient="records"))
 
 # ---------- Entrypoint ----------
 if __name__ == "__main__":
