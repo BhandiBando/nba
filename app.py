@@ -11,12 +11,12 @@ app = Flask(__name__)
 # ----------------- CONFIG -----------------
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "YOUR_THE_ODDS_API_KEY")
 BL_BASE = "https://api.balldontlie.io/v1"
-BL_HEADERS = {}  # If you have a key: {"Authorization": "Bearer ..."}
+BL_HEADERS = {}  # If you have an API key for BallDontLie, add it here
 SAVE_DIR = "data"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 def today_str():
-    # naive ET date string (good enough for a daily slate)
+    """Return current date string for naming daily files."""
     return dt.datetime.now(dt.timezone(dt.timedelta(hours=-4))).strftime("%Y-%m-%d")
 
 # ----------------- ESPN INJURIES -----------------
@@ -25,7 +25,7 @@ def espn_injuries() -> pd.DataFrame:
     try:
         j = requests.get(url, timeout=20).json()
     except Exception:
-        return pd.DataFrame(columns=["team","player","status","comment","date"])
+        return pd.DataFrame(columns=["team", "player", "status", "comment", "date"])
     rows = []
     for team in j.get("injuries", []):
         tabbr = team["team"]["abbreviation"]
@@ -39,22 +39,30 @@ def espn_injuries() -> pd.DataFrame:
             })
     return pd.DataFrame(rows)
 
-# ----------------- ODDS (DK/FD via The Odds API) -----------------
+# ----------------- ODDS API (DraftKings / FanDuel) -----------------
 def odds_events() -> List[dict]:
     url = "https://api.the-odds-api.com/v4/sports/basketball_nba/events"
     return requests.get(url, params={"apiKey": ODDS_API_KEY}, timeout=25).json()
 
 def event_props(event_id: str, markets: List[str]) -> dict:
     url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds"
-    params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": ",".join(markets), "oddsFormat": "american"}
+    params = {
+        "apiKey": ODDS_API_KEY,
+        "regions": "us",
+        "markets": ",".join(markets),
+        "oddsFormat": "american"
+    }
     return requests.get(url, params=params, timeout=25).json()
 
 def pull_dk_fd_player_props(markets=None) -> pd.DataFrame:
-    markets = markets or ["player_points","player_rebounds","player_assists","player_steals","player_blocks"]
+    """Get player props for DK & FD for specified markets."""
+    markets = markets or ["player_points", "player_rebounds", "player_assists", "player_steals", "player_blocks"]
     events = odds_events()
     props_rows = []
     for ev in events:
-        ev_id = ev["id"]; home = ev["home_team"]; away = ev["away_team"]
+        ev_id = ev["id"]
+        home = ev["home_team"]
+        away = ev["away_team"]
         odds = event_props(ev_id, markets)
         for bm in odds.get("bookmakers", []):
             if bm.get("key") not in ("draftkings", "fanduel"):
@@ -63,71 +71,93 @@ def pull_dk_fd_player_props(markets=None) -> pd.DataFrame:
                 mkey = m["key"]
                 for out in m.get("outcomes", []):
                     props_rows.append({
-                        "event_id": ev_id, "home": home, "away": away,
+                        "event_id": ev_id,
+                        "home": home,
+                        "away": away,
                         "book": bm["key"],
                         "market": mkey,
                         "player": out.get("description") or out.get("name"),
                         "line": out.get("point"),
-                        "price": out.get("price"),
+                        "price": out.get("price")
                     })
         time.sleep(0.05)
     return pd.DataFrame(props_rows)
 
-# ----------------- BALLDONTLIE: L10 + H2H -----------------
+# ----------------- BALLDONTLIE: Player & Team Data -----------------
 def bl_search_player(name: str) -> Optional[dict]:
     j = requests.get(f"{BL_BASE}/players", params={"search": name, "per_page": 25}, headers=BL_HEADERS, timeout=20).json()
     data = j.get("data", [])
     return data[0] if data else None
 
-def bl_player_last_n_stats(player_id: int, n: int=10) -> pd.DataFrame:
+def bl_player_last_n_stats(player_id: int, n: int = 10) -> pd.DataFrame:
     stats = []
     page = 1
     while len(stats) < n and page <= 10:
-        j = requests.get(f"{BL_BASE}/stats", params={"player_ids[]": player_id, "per_page": 100, "page": page, "postseason": "false"}, headers=BL_HEADERS, timeout=20).json()
+        j = requests.get(f"{BL_BASE}/stats",
+                         params={"player_ids[]": player_id, "per_page": 100, "page": page, "postseason": "false"},
+                         headers=BL_HEADERS, timeout=20).json()
         data = j.get("data", [])
-        if not data: break
-        stats.extend(data); page += 1
+        if not data:
+            break
+        stats.extend(data)
+        page += 1
         time.sleep(0.05)
     df = pd.DataFrame([{
         "date": d["game"]["date"][:10],
-        "opponent": d["game"]["home_team"]["abbreviation"] if d["game"]["home_team"]["id"] != d["team"]["id"] else d["game"]["visitor_team"]["abbreviation"],
-        "PTS": d["pts"], "REB": d["reb"], "AST": d["ast"], "STL": d["stl"], "BLK": d["blk"]
+        "opponent": d["game"]["home_team"]["abbreviation"]
+        if d["game"]["home_team"]["id"] != d["team"]["id"]
+        else d["game"]["visitor_team"]["abbreviation"],
+        "PTS": d["pts"],
+        "REB": d["reb"],
+        "AST": d["ast"],
+        "STL": d["stl"],
+        "BLK": d["blk"]
     } for d in stats])
-    if df.empty: return df
+    if df.empty:
+        return df
     df["date"] = pd.to_datetime(df["date"])
     return df.sort_values("date", ascending=False).head(n).reset_index(drop=True)
 
 def bl_team_id_map() -> pd.DataFrame:
     j = requests.get(f"{BL_BASE}/teams", headers=BL_HEADERS, timeout=20).json()
-    return pd.DataFrame(j["data"])[["id","abbreviation","full_name"]]
+    return pd.DataFrame(j["data"])[["id", "abbreviation", "full_name"]]
 
 def bl_h2h_last5(home_abbr: str, away_abbr: str) -> pd.DataFrame:
     teams = bl_team_id_map()
+
     def tid(abbr):
-        s = teams[teams["abbreviation"]==abbr]
+        s = teams[teams["abbreviation"] == abbr]
         return int(s.iloc[0]["id"]) if not s.empty else None
+
     home_id, away_id = tid(home_abbr), tid(away_abbr)
-    if not home_id or not away_id: return pd.DataFrame()
+    if not home_id or not away_id:
+        return pd.DataFrame()
 
     def pull_team_games(team_id: int, seasons: List[int]) -> List[dict]:
         games = []
         for season in seasons:
             page = 1
             while page <= 5:
-                j = requests.get(f"{BL_BASE}/games", params={"team_ids[]": team_id, "seasons[]": season, "per_page": 100, "page": page}, headers=BL_HEADERS, timeout=20).json()
+                j = requests.get(f"{BL_BASE}/games",
+                                 params={"team_ids[]": team_id, "seasons[]": season, "per_page": 100, "page": page},
+                                 headers=BL_HEADERS, timeout=20).json()
                 data = j.get("data", [])
-                if not data: break
-                games.extend(data); page += 1
+                if not data:
+                    break
+                games.extend(data)
+                page += 1
                 time.sleep(0.05)
         return games
 
     year = dt.datetime.now().year
-    seasons = [year, year-1, year-2]
+    seasons = [year, year - 1, year - 2]
     g = pull_team_games(home_id, seasons) + pull_team_games(away_id, seasons)
 
     def is_pair(x):
-        a = x["home_team"]["id"]; b = x["visitor_team"]["id"]
-        return {a,b} == {home_id, away_id}
+        a = x["home_team"]["id"]
+        b = x["visitor_team"]["id"]
+        return {a, b} == {home_id, away_id}
+
     h2h = [x for x in g if is_pair(x)]
     uniq = {x["id"]: x for x in h2h}
     rows = []
@@ -174,20 +204,25 @@ def predict_and_score(row: pd.Series, l10_df: pd.DataFrame) -> Dict:
     if np.isnan(base) or np.isnan(line) or np.isnan(price):
         return {"pred_mean": base, "sd": sd, "hit_prob": np.nan, "ev_per_$": np.nan, "score": np.nan}
 
-    # Over prob (Normal assumption). Upgrade later with opponent/pace + injury usage shifts.
+    # Over probability (Normal CDF)
     z = (base - line) / sd
     hit_prob = 1 - norm.cdf(0 - z)
 
-    payout = (price/100.0) if price>0 else (100.0/abs(price))
+    payout = (price / 100.0) if price > 0 else (100.0 / abs(price))
     ev = hit_prob * payout - (1 - hit_prob) * 1.0
-    score = 0.7*hit_prob + 0.3*ev
+    score = 0.7 * hit_prob + 0.3 * ev
 
-    return {"pred_mean": float(base), "sd": float(sd), "hit_prob": float(hit_prob), "ev_per_$": float(ev), "score": float(score)}
+    return {
+        "pred_mean": float(base),
+        "sd": float(sd),
+        "hit_prob": float(hit_prob),
+        "ev_per_$": float(ev),
+        "score": float(score)
+    }
 
-# ----------------- ROUTES (UI + APIs) -----------------
+# ----------------- ROUTES -----------------
 @app.route("/")
 def home():
-    # redirect traffic to the props page (simple UI)
     return render_template("props.html")
 
 @app.route("/api/injuries")
@@ -197,8 +232,9 @@ def api_injuries():
 
 @app.route("/api/games")
 def api_games():
-    props = pull_dk_fd_player_props(markets=["player_points"])  # light call to get events
-    games = props[["event_id","home","away"]].drop_duplicates() if not props.empty else pd.DataFrame(columns=["event_id","home","away"])
+    props = pull_dk_fd_player_props(markets=["player_points"])
+    games = props[["event_id", "home", "away"]].drop_duplicates() if not props.empty else pd.DataFrame(
+        columns=["event_id", "home", "away"])
     out = []
     for _, g in games.iterrows():
         h = bl_h2h_last5(g["home"], g["away"])
@@ -218,29 +254,27 @@ def api_games():
 @app.route("/api/props")
 def api_props():
     date_str = request.args.get("date") or today_str()
-    markets = request.args.get("markets", "player_points,player_rebounds,player_assists,player_steals,player_blocks").split(",")
+    markets = request.args.get("markets",
+                               "player_points,player_rebounds,player_assists,player_steals,player_blocks").split(",")
     inj = espn_injuries()
     props = pull_dk_fd_player_props(markets=markets)
     if props.empty:
         return jsonify([])
 
-    # last-10 per player appearing in props
     players = sorted(set(props["player"].dropna().tolist()))
-    l10_map: Dict[str, pd.DataFrame] = {}
+    l10_map = {}
     for p in players:
         info = bl_search_player(p)
         l10_map[p] = bl_player_last_n_stats(info["id"], n=10) if info else pd.DataFrame()
         time.sleep(0.05)
 
-    # score each prop
     scored = []
     for _, r in props.iterrows():
         l10 = l10_map.get(r["player"], pd.DataFrame())
         sc = predict_and_score(r, l10)
         row = r.to_dict()
         row.update(sc)
-        # attach player injury flag
-        pinj = inj[inj["player"]==r["player"]]
+        pinj = inj[inj["player"] == r["player"]]
         if not pinj.empty:
             row["injury_status"] = pinj.iloc[0]["status"]
             row["injury_comment"] = pinj.iloc[0]["comment"]
@@ -249,16 +283,15 @@ def api_props():
             row["injury_comment"] = None
         scored.append(row)
 
-    ranked = pd.DataFrame(scored).sort_values(["score","ev_per_$","hit_prob"], ascending=False)
+    ranked = pd.DataFrame(scored).sort_values(["score", "ev_per_$", "hit_prob"], ascending=False)
     ranked.to_csv(os.path.join(SAVE_DIR, f"ranked_props_{date_str}.csv"), index=False)
-
     topk = int(request.args.get("topk", 100))
     return jsonify(ranked.head(topk).to_dict(orient="records"))
 
-# healthcheck
 @app.route("/healthz")
 def healthz():
     return "ok", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
