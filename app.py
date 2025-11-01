@@ -292,27 +292,62 @@ def api_props():
     topk = int(request.args.get("topk", 100))
     return jsonify(ranked.head(topk).to_dict(orient="records"))
 
-@app.route("/api/debug")
-def api_debug():
-    key_is_set = bool(os.getenv("ODDS_API_KEY"))
-    try:
-        r = requests.get(
-            "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
-            params={"apiKey": os.getenv("ODDS_API_KEY")},
-            timeout=15,
-        )
-        return jsonify({
-            "odds_api_key_present": key_is_set,
-            "odds_status_code": r.status_code,
-            "content_type": r.headers.get("Content-Type"),
-            "sample_body_start": (r.text or "")[:200]
-        })
-    except Exception as e:
-        return jsonify({"odds_api_key_present": key_is_set, "error": f"request_failed: {e}"}), 502
+# ---- QUICK DIAGNOSTICS ----
+@app.route("/api/odds/events")
+def odds_events_debug():
+    r = requests.get(
+        "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+        params={"apiKey": os.getenv("ODDS_API_KEY")},
+        timeout=20,
+    )
+    return jsonify({
+        "status": r.status_code,
+        "content_type": r.headers.get("Content-Type"),
+        "len": len(r.json()) if "application/json" in r.headers.get("Content-Type","") else None,
+        "sample": (r.json()[0] if "application/json" in r.headers.get("Content-Type","") and r.json() else None)
+    }), r.status_code
 
-@app.route("/healthz")
-def healthz():
-    return "ok", 200
+@app.route("/api/odds/props_first_event")
+def odds_props_first_event():
+    ev = requests.get(
+        "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
+        params={"apiKey": os.getenv("ODDS_API_KEY")},
+        timeout=20,
+    )
+    if ev.status_code != 200 or not ev.json():
+        return jsonify({"error": "events_fetch_failed", "status": ev.status_code, "body": ev.text[:200]}), 502
+
+    event_id = ev.json()[0]["id"]
+    props = requests.get(
+        f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds",
+        params={
+            "apiKey": os.getenv("ODDS_API_KEY"),
+            "regions": "us",
+            "markets": "player_points,player_rebounds,player_assists,player_steals,player_blocks",
+            "oddsFormat": "american",
+        },
+        timeout=25,
+    )
+    return jsonify({
+        "event_id": event_id,
+        "status": props.status_code,
+        "content_type": props.headers.get("Content-Type"),
+        "raw_sample": props.text[:400]
+    }), props.status_code
+
+# ---- SINGLE fast props endpoint (deduped) ----
+@app.route("/api/props_fast", endpoint="props_fast_v1")
+def props_fast_v1():
+    markets = request.args.get(
+        "markets",
+        "player_points,player_rebounds,player_assists,player_steals,player_blocks"
+    ).split(",")
+    props = pull_dk_fd_player_props(markets=markets)
+    if "error" in props.columns:
+        return jsonify({"error": props.iloc[0]["error"]}), 502
+    return jsonify(props.to_dict(orient="records"))
+
+# ---- SINGLE debug endpoint (deduped) ----
 @app.route("/api/debug", endpoint="debug_status")
 def debug_status():
     key_is_set = bool(os.getenv("ODDS_API_KEY"))
@@ -333,84 +368,12 @@ def debug_status():
             "odds_api_key_present": key_is_set,
             "error": f"request_failed: {e}"
         }), 502
-# ---- QUICK DIAGNOSTICS ----
-@app.route("/api/odds/events")
-def odds_events_debug():
-    r = requests.get(
-        "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
-        params={"apiKey": os.getenv("ODDS_API_KEY")},
-        timeout=20,
-    )
-    return jsonify({
-        "status": r.status_code,
-        "content_type": r.headers.get("Content-Type"),
-        "len": len(r.json()) if "application/json" in r.headers.get("Content-Type","") else None,
-        "sample": (r.json()[0] if "application/json" in r.headers.get("Content-Type","") and r.json() else None)
-    }), r.status_code
 
-@app.route("/api/odds/props_first_event")
-def odds_props_first_event():
-    # pull events
-    ev = requests.get(
-        "https://api.the-odds-api.com/v4/sports/basketball_nba/events",
-        params={"apiKey": os.getenv("ODDS_API_KEY")},
-        timeout=20,
-    )
-    if ev.status_code != 200 or not ev.json():
-        return jsonify({"error": "events_fetch_failed", "status": ev.status_code, "body": ev.text[:200]}), 502
-
-    event_id = ev.json()[0]["id"]
-
-    # try player props (points)
-    props = requests.get(
-        f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds",
-        params={
-            "apiKey": os.getenv("ODDS_API_KEY"),
-            "regions": "us",
-            "markets": "player_points,player_rebounds,player_assists,player_steals,player_blocks",
-            "oddsFormat": "american",
-        },
-        timeout=25,
-    )
-    return jsonify({
-        "event_id": event_id,
-        "status": props.status_code,
-        "content_type": props.headers.get("Content-Type"),
-        "raw_sample": props.text[:400]
-    }), props.status_code
-
-@app.route("/api/props_fast")
-def api_props_fast():
-    markets = request.args.get(
-        "markets",
-        "player_points,player_rebounds,player_assists,player_steals,player_blocks"
-    ).split(",")
-    props = pull_dk_fd_player_props(markets=markets)
-    if "error" in props.columns:
-        return jsonify({"error": props.iloc[0]["error"]}), 502
-    return jsonify(props.to_dict(orient="records"))
-
-@app.route("/api/props_fast")
-def api_props_fast():
-    markets = request.args.get(
-        "markets",
-        "player_points,player_rebounds,player_assists,player_steals,player_blocks"
-    ).split(",")
-    props = pull_dk_fd_player_props(markets=markets)
-    if "error" in props.columns:
-        return jsonify({"error": props.iloc[0]["error"]}), 502
-    return jsonify(props.to_dict(orient="records"))
-@app.route("/api/props_fast")
-def api_props_fast():
-    markets = request.args.get(
-        "markets",
-        "player_points,player_rebounds,player_assists,player_steals,player_blocks"
-    ).split(",")
-    props = pull_dk_fd_player_props(markets=markets)
-    if "error" in props.columns:
-        return jsonify({"error": props.iloc[0]["error"]}), 502
-    return jsonify(props.to_dict(orient="records"))
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
 
 # ---------- Entrypoint ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
