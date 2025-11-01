@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Injury-Driven Analysis — {{ vm.meta.away_team }} @ {{ vm.meta.home_team }}</title>
+    <style>
+      body { font-family: Arial, sans-serif; background:#0d1117; color:#e6edf3; margin:0; }
+      .wrap { max-width: 960px; margin: 60px auto; padding: 0 20px; }
+      h1 { color:#00bfff; margin-bottom: 6px; }
+      .sub { color:#9da7b3; margin-top:0; }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+      .card { background:#111827; border:1px solid #1f2937; border-radius:14px; padding:16px 20px; }
+      table { width:100%; border-collapse:collapse; margin-top:8px; }
+      th, td { text-align:left; padding:10px; border-bottom:1px solid #1f2937; }
+      .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#0b2f44; color:#8edaff; font-size:12px; }
+      .muted { color:#9da7b3; }
+      a { color:#67b7ff; text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      @media (max-width: 900px){ .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>{{ vm.meta.away_team }} @ {{ vm.meta.home_team }}</h1>
+      <p class="sub">
+        {{ vm.meta.date }} • Tipoff {{ vm.meta.tipoff or vm.meta.tipoff_et }}{% if vm.meta.arena %} • {{ vm.meta.arena }}{% endif %}
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <div><span class="pill">Top Picks (injury-adjusted)</span></div>
+          {% if vm.picks and vm.picks|length %}
+          <table>
+            <tr><th>Player</th><th>Stat</th><th>Proj</th><th>Line</th><th>Prob(Over)</th><th>Edge</th></tr>
+            {% for p in vm.picks %}
+            <tr>
+              <td>{{ p.player }}</td>
+              <td>{{ p.stat.upper() }}</td>
+              <td>{{ p.proj }}</td>
+              <td>{{ p.line }}</td>
+              <td>{{ (p.prob_over*100)|round(1) }}%</td>
+              <td>{{ p.edge }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% else %}
+            <p class="muted">No picks to show yet.</p>
+          {% endif %}
+        </div>
+
+        <div class="card">
+          <div><span class="pill">Team Scoring With vs Without Star</span></div>
+          {% if vm.onoff and vm.onoff|length %}
+          <table>
+            <tr><th>Team</th><th>Star</th><th>Avg PTS (star in)</th><th>Avg PTS (star out)</th><th>Games in/out</th></tr>
+            {% for row in vm.onoff %}
+            <tr>
+              <td>{{ row.team }}</td>
+              <td>{{ row.star }}</td>
+              <td>{{ row.avg_in if row.avg_in is not none else "—" }}</td>
+              <td>{{ row.avg_out if row.avg_out is not none else "—" }}</td>
+              <td>{{ row.n_in }}/{{ row.n_out }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% else %}
+            <p class="muted">On/off data not available.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div><span class="pill">Injury Report</span></div>
+        {% set inj = vm.injuries if vm.injuries is defined else {} %}
+        {% set lal = inj.get('LAL', []) %}
+        {% set mem = inj.get('MEM', []) %}
+        {% if (lal|length) or (mem|length) %}
+          <table>
+            <tr><th>Team</th><th>Player</th><th>Status</th><th>Notes</th></tr>
+            {% for r in lal %}
+            <tr><td>LAL</td><td>{{ r.player }}</td><td>{{ r.status }}</td><td>{{ r.notes }}</td></tr>
+            {% endfor %}
+            {% for r in mem %}
+            <tr><td>MEM</td><td>{{ r.player }}</td><td>{{ r.status }}</td><td>{{ r.notes }}</td></tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p class="muted">No injury rows available.</p>
+        {% endif %}
+      </div>
+
+      <p style="margin-top:22px">
+        JSON on/off API: <a href="/api/onoff?team=LAL&star=LeBron%20James">/api/onoff?team=LAL&star=LeBron%20James</a>
+        · <a href="/">Home</a> · <a href="/game/lakers-grizzlies">Game page</a>
+      </p>
+    </div>
+  </body>
+</html>
