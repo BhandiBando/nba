@@ -1,275 +1,264 @@
-# app.py
-from flask import Flask, render_template, jsonify, request
-import requests, math
-from dataclasses import dataclass
+from flask import Flask, jsonify, render_template, request
+import os, time, math, datetime as dt
+from typing import Dict, List, Optional
+import requests
+import pandas as pd
+import numpy as np
+from scipy.stats import norm
 
 app = Flask(__name__)
 
-# ---------------- Game meta ----------------
-SEASON = 2025  # 2025-26 season
-GAME = {
-    "date": "2025-10-31",
-    "tipoff": "9:30 PM ET",
-    "away_team": "Los Angeles Lakers",
-    "home_team": "Memphis Grizzlies",
-    "arena": "FedExForum, Memphis, TN",
+# ----------------- CONFIG -----------------
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "YOUR_THE_ODDS_API_KEY")
+BL_BASE = "https://api.balldontlie.io/v1"
+BL_HEADERS = {}  # If you have a key: {"Authorization": "Bearer ..."}
+SAVE_DIR = "data"
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+def today_str():
+    # naive ET date string (good enough for a daily slate)
+    return dt.datetime.now(dt.timezone(dt.timedelta(hours=-4))).strftime("%Y-%m-%d")
+
+# ----------------- ESPN INJURIES -----------------
+def espn_injuries() -> pd.DataFrame:
+    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries"
+    try:
+        j = requests.get(url, timeout=20).json()
+    except Exception:
+        return pd.DataFrame(columns=["team","player","status","comment","date"])
+    rows = []
+    for team in j.get("injuries", []):
+        tabbr = team["team"]["abbreviation"]
+        for p in team.get("injuries", []):
+            rows.append({
+                "team": tabbr,
+                "player": p["athlete"]["displayName"],
+                "status": p.get("status"),
+                "comment": p.get("details") or p.get("comment") or "",
+                "date": p.get("date") or ""
+            })
+    return pd.DataFrame(rows)
+
+# ----------------- ODDS (DK/FD via The Odds API) -----------------
+def odds_events() -> List[dict]:
+    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/events"
+    return requests.get(url, params={"apiKey": ODDS_API_KEY}, timeout=25).json()
+
+def event_props(event_id: str, markets: List[str]) -> dict:
+    url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds"
+    params = {"apiKey": ODDS_API_KEY, "regions": "us", "markets": ",".join(markets), "oddsFormat": "american"}
+    return requests.get(url, params=params, timeout=25).json()
+
+def pull_dk_fd_player_props(markets=None) -> pd.DataFrame:
+    markets = markets or ["player_points","player_rebounds","player_assists","player_steals","player_blocks"]
+    events = odds_events()
+    props_rows = []
+    for ev in events:
+        ev_id = ev["id"]; home = ev["home_team"]; away = ev["away_team"]
+        odds = event_props(ev_id, markets)
+        for bm in odds.get("bookmakers", []):
+            if bm.get("key") not in ("draftkings", "fanduel"):
+                continue
+            for m in bm.get("markets", []):
+                mkey = m["key"]
+                for out in m.get("outcomes", []):
+                    props_rows.append({
+                        "event_id": ev_id, "home": home, "away": away,
+                        "book": bm["key"],
+                        "market": mkey,
+                        "player": out.get("description") or out.get("name"),
+                        "line": out.get("point"),
+                        "price": out.get("price"),
+                    })
+        time.sleep(0.05)
+    return pd.DataFrame(props_rows)
+
+# ----------------- BALLDONTLIE: L10 + H2H -----------------
+def bl_search_player(name: str) -> Optional[dict]:
+    j = requests.get(f"{BL_BASE}/players", params={"search": name, "per_page": 25}, headers=BL_HEADERS, timeout=20).json()
+    data = j.get("data", [])
+    return data[0] if data else None
+
+def bl_player_last_n_stats(player_id: int, n: int=10) -> pd.DataFrame:
+    stats = []
+    page = 1
+    while len(stats) < n and page <= 10:
+        j = requests.get(f"{BL_BASE}/stats", params={"player_ids[]": player_id, "per_page": 100, "page": page, "postseason": "false"}, headers=BL_HEADERS, timeout=20).json()
+        data = j.get("data", [])
+        if not data: break
+        stats.extend(data); page += 1
+        time.sleep(0.05)
+    df = pd.DataFrame([{
+        "date": d["game"]["date"][:10],
+        "opponent": d["game"]["home_team"]["abbreviation"] if d["game"]["home_team"]["id"] != d["team"]["id"] else d["game"]["visitor_team"]["abbreviation"],
+        "PTS": d["pts"], "REB": d["reb"], "AST": d["ast"], "STL": d["stl"], "BLK": d["blk"]
+    } for d in stats])
+    if df.empty: return df
+    df["date"] = pd.to_datetime(df["date"])
+    return df.sort_values("date", ascending=False).head(n).reset_index(drop=True)
+
+def bl_team_id_map() -> pd.DataFrame:
+    j = requests.get(f"{BL_BASE}/teams", headers=BL_HEADERS, timeout=20).json()
+    return pd.DataFrame(j["data"])[["id","abbreviation","full_name"]]
+
+def bl_h2h_last5(home_abbr: str, away_abbr: str) -> pd.DataFrame:
+    teams = bl_team_id_map()
+    def tid(abbr):
+        s = teams[teams["abbreviation"]==abbr]
+        return int(s.iloc[0]["id"]) if not s.empty else None
+    home_id, away_id = tid(home_abbr), tid(away_abbr)
+    if not home_id or not away_id: return pd.DataFrame()
+
+    def pull_team_games(team_id: int, seasons: List[int]) -> List[dict]:
+        games = []
+        for season in seasons:
+            page = 1
+            while page <= 5:
+                j = requests.get(f"{BL_BASE}/games", params={"team_ids[]": team_id, "seasons[]": season, "per_page": 100, "page": page}, headers=BL_HEADERS, timeout=20).json()
+                data = j.get("data", [])
+                if not data: break
+                games.extend(data); page += 1
+                time.sleep(0.05)
+        return games
+
+    year = dt.datetime.now().year
+    seasons = [year, year-1, year-2]
+    g = pull_team_games(home_id, seasons) + pull_team_games(away_id, seasons)
+
+    def is_pair(x):
+        a = x["home_team"]["id"]; b = x["visitor_team"]["id"]
+        return {a,b} == {home_id, away_id}
+    h2h = [x for x in g if is_pair(x)]
+    uniq = {x["id"]: x for x in h2h}
+    rows = []
+    for x in sorted(uniq.values(), key=lambda y: y["date"], reverse=True)[:5]:
+        rows.append({
+            "date": x["date"][:10],
+            "home": x["home_team"]["abbreviation"],
+            "away": x["visitor_team"]["abbreviation"],
+            "home_score": x["home_team_score"],
+            "away_score": x["visitor_team_score"],
+            "margin_home": x["home_team_score"] - x["visitor_team_score"]
+        })
+    return pd.DataFrame(rows)
+
+# ----------------- MODEL -----------------
+STAT_COL_FOR_MARKET = {
+    "player_points": "PTS",
+    "player_rebounds": "REB",
+    "player_assists": "AST",
+    "player_steals": "STL",
+    "player_blocks": "BLK"
 }
 
-# balldontlie team IDs (subset we need)
-TEAM_ID_BDL = {
-    "LAL": 14,
-    "MEM": 15,
-    "DAL": 7,
-}
+def safe_mean(x: pd.Series) -> float:
+    x = pd.to_numeric(x, errors="coerce").dropna()
+    return float(x.mean()) if len(x) else np.nan
 
-# ---------------- Player baselines (expand as you go) ----------------
-@dataclass
-class PlayerBaseline:
-    player: str
-    team: str  # team abbr
-    mpg: float
-    per36_pts: float
-    per36_reb: float
-    per36_ast: float
-    role: str  # primary_ballhandler | secondary_ballhandler | wing_shooter | big
+def safe_std(x: pd.Series) -> float:
+    x = pd.to_numeric(x, errors="coerce").dropna()
+    return float(x.std(ddof=1)) if len(x) > 1 else np.nan
 
-BASELINES = [
-    # Lakers
-    PlayerBaseline("LeBron James", "LAL", 34.0, 25.5, 7.8, 7.5, "primary_ballhandler"),
-    PlayerBaseline("Anthony Davis", "LAL", 35.0, 27.2, 13.0, 2.8, "big"),
-    PlayerBaseline("Austin Reaves", "LAL", 30.0, 17.0, 4.6, 5.1, "secondary_ballhandler"),
-    PlayerBaseline("D'Angelo Russell", "LAL", 30.0, 20.3, 3.6, 6.3, "secondary_ballhandler"),
-    # Added LAL to cover tonight
-    PlayerBaseline("Rui Hachimura", "LAL", 29.0, 17.5, 6.2, 1.8, "wing_shooter"),
-    PlayerBaseline("Jaxson Hayes", "LAL", 18.0, 11.5, 10.4, 1.0, "big"),
+def predict_and_score(row: pd.Series, l10_df: pd.DataFrame) -> Dict:
+    stat = STAT_COL_FOR_MARKET.get(row["market"])
+    if not stat or l10_df.empty:
+        return {"pred_mean": np.nan, "sd": np.nan, "hit_prob": np.nan, "ev_per_$": np.nan, "score": np.nan}
 
-    # Grizzlies
-    PlayerBaseline("Desmond Bane", "MEM", 34.0, 25.8, 5.3, 4.8, "wing_shooter"),
-    PlayerBaseline("Jaren Jackson Jr.", "MEM", 31.0, 23.6, 7.1, 1.5, "big"),
-    PlayerBaseline("Ja Morant", "MEM", 34.0, 27.0, 5.5, 8.0, "primary_ballhandler"),
-    # Added MEM to cover tonight
-    PlayerBaseline("Santi Aldama", "MEM", 28.0, 16.2, 7.6, 2.6, "wing_shooter"),
-    PlayerBaseline("Kentavious Caldwell-Pope", "MEM", 32.0, 13.5, 3.6, 2.4, "wing_shooter"),
-]
+    base = safe_mean(l10_df[stat])
+    sd = safe_std(l10_df[stat])
+    if np.isnan(sd):
+        sd = max(1.5, math.sqrt(abs(base))) if not np.isnan(base) else 2.0
 
-def roster(team_abbr):
-    return [p for p in BASELINES if p.team == team_abbr]
+    line = float(row["line"]) if row["line"] is not None else np.nan
+    price = float(row["price"]) if row["price"] is not None else np.nan
+    if np.isnan(base) or np.isnan(line) or np.isnan(price):
+        return {"pred_mean": base, "sd": sd, "hit_prob": np.nan, "ev_per_$": np.nan, "score": np.nan}
 
-# ---------------- Minutes + usage adjustments ----------------
-def redistribute_minutes(team_roster, injured_names):
-    exp = {p.player: p.mpg for p in team_roster}
-    for inj in injured_names:
-        injp = next((p for p in team_roster if inj.lower() in p.player.lower()), None)
-        if not injp:
-            continue
-        freed = injp.mpg
-        same_role = [p for p in team_roster if p.player != injp.player and p.role == injp.role]
-        others = [p for p in team_roster if p.player != injp.player and p.role != injp.role]
-        if same_role:
-            weights = {}
-            primary = same_role[:2]
-            if len(primary) == 1:
-                weights[primary[0].player] = 0.55
-            else:
-                weights[primary[0].player] = 0.45
-                weights[primary[1].player] = 0.30
-            remain = 1.0 - sum(weights.values())
-            for p in others:
-                weights[p.player] = weights.get(p.player, 0) + remain / max(len(others), 1)
-        else:
-            weights = {p.player: 1.0 / (len(team_roster) - 1) for p in team_roster if p.player != injp.player}
-        for name, w in weights.items():
-            exp[name] = exp.get(name, 0) + freed * w
-        exp[injp.player] = 0.0
-    # clamp
-    for k, v in exp.items():
-        exp[k] = max(12.0, min(40.0, v))
-    return exp
+    # Over prob (Normal assumption). Upgrade later with opponent/pace + injury usage shifts.
+    z = (base - line) / sd
+    hit_prob = 1 - norm.cdf(0 - z)
 
-def usage_adjust(role):
-    if role == "primary_ballhandler":       return (1.08, 0.85, 1.00)
-    if role == "secondary_ballhandler":     return (1.06, 0.92, 1.00)
-    if role == "big":                       return (1.02, 1.00, 1.08)
-    if role == "wing_shooter":              return (1.05, 1.00, 1.00)
-    return (1.00, 1.00, 1.00)
+    payout = (price/100.0) if price>0 else (100.0/abs(price))
+    ev = hit_prob * payout - (1 - hit_prob) * 1.0
+    score = 0.7*hit_prob + 0.3*ev
 
-def reproject_stats(team_roster, expected_minutes, injured_names):
-    missing_roles = [p.role for p in team_roster for name in injured_names if name.lower() in p.player.lower()]
-    pts_mult = ast_mult = reb_mult = 1.0
-    for r in missing_roles:
-        pm, am, rm = usage_adjust(r)
-        pts_mult *= pm; ast_mult *= am; reb_mult *= rm
+    return {"pred_mean": float(base), "sd": float(sd), "hit_prob": float(hit_prob), "ev_per_$": float(ev), "score": float(score)}
 
-    out = {}
-    for p in team_roster:
-        m = expected_minutes.get(p.player, p.mpg)
-        pts = p.per36_pts * (m / 36.0) * (pts_mult if p.player not in injured_names else 0)
-        reb = p.per36_reb * (m / 36.0) * (reb_mult if p.player not in injured_names else 0)
-        ast = p.per36_ast * (m / 36.0) * (ast_mult if p.player not in injured_names else 0)
-        out[p.player] = {"pts": round(pts, 2), "reb": round(reb, 2), "ast": round(ast, 2), "mpg": round(m, 1)}
-    return out
-
-def prob_over_normal(mean, line, sigma=3.2):
-    z = (mean - line) / max(1e-6, sigma)
-    return 0.5 * (1.0 + math.erf(z / math.sqrt(2)))
-
-# ---------------- balldontlie on/off (robust) ----------------
-def _json_or_none(resp):
-    try:
-        if not resp or not resp.ok:
-            return None
-        if "json" not in (resp.headers.get("Content-Type", "") or ""):
-            return None
-        return resp.json()
-    except Exception:
-        return None
-
-def bdl_find_player_id(name):
-    try:
-        q = name.split()[0]
-        r = requests.get(
-            f"https://www.balldontlie.io/api/v1/players?search={q}",
-            timeout=12, headers={"User-Agent": "nba-props/1.0"}
-        )
-        data = _json_or_none(r) or {}
-        for p in data.get("data", []):
-            full = f"{p.get('first_name','')} {p.get('last_name','')}".strip().lower()
-            if name.lower() in full:
-                return p.get("id")
-        return (data.get("data") or [{}])[0].get("id")
-    except Exception:
-        return None
-
-def bdl_team_games(team_abbr, season):
-    try:
-        team_id = TEAM_ID_BDL[team_abbr]
-        out, page = [], 1
-        while True:
-            url = f"https://www.balldontlie.io/api/v1/games?seasons[]={season}&team_ids[]={team_id}&per_page=100&page={page}"
-            r = requests.get(url, timeout=12, headers={"User-Agent": "nba-props/1.0"})
-            data = _json_or_none(r) or {}
-            games = data.get("data", [])
-            for g in games:
-                is_home = (g.get("home_team", {}).get("id") == team_id)
-                team_pts = g.get("home_team_score") if is_home else g.get("visitor_team_score")
-                out.append({"game_id": g.get("id"), "team_pts": team_pts})
-            if not games or len(games) < 100:
-                break
-            page += 1
-        return out
-    except Exception:
-        return []
-
-def bdl_star_played(game_id, player_id):
-    try:
-        if not game_id or not player_id:
-            return False
-        url = f"https://www.balldontlie.io/api/v1/stats?game_ids[]={game_id}&player_ids[]={player_id}&per_page=1"
-        r = requests.get(url, timeout=12, headers={"User-Agent": "nba-props/1.0"})
-        data = _json_or_none(r) or {}
-        return len(data.get("data", [])) > 0
-    except Exception:
-        return False
-
-def compute_onoff_points(team_abbr, star_name, season):
-    pid = bdl_find_player_id(star_name)
-    if not pid:
-        return {"team": team_abbr, "star": star_name, "avg_in": None, "avg_out": None, "n_in": 0, "n_out": 0}
-    gl = bdl_team_games(team_abbr, season)
-    if not gl:
-        return {"team": team_abbr, "star": star_name, "avg_in": None, "avg_out": None, "n_in": 0, "n_out": 0}
-    pts_in, pts_out = [], []
-    for g in gl:
-        (pts_in if bdl_star_played(g["game_id"], pid) else pts_out).append(g["team_pts"])
-    avg_in  = round(sum(pts_in)/len(pts_in), 1) if pts_in else None
-    avg_out = round(sum(pts_out)/len(pts_out), 1) if pts_out else None
-    return {"team": team_abbr, "star": star_name, "avg_in": avg_in, "avg_out": avg_out, "n_in": len(pts_in), "n_out": len(pts_out)}
-
-def safe_compute_onoff(team, star, season):
-    try:
-        return compute_onoff_points(team, star, season)
-    except Exception:
-        return {"team": team, "star": star, "avg_in": None, "avg_out": None, "n_in": 0, "n_out": 0}
-
-# ---------------- Routes ----------------
+# ----------------- ROUTES (UI + APIs) -----------------
 @app.route("/")
 def home():
-    return render_template("index.html")
+    # redirect traffic to the props page (simple UI)
+    return render_template("props.html")
 
-@app.route("/api/onoff")
-def api_onoff():
-    team = request.args.get("team", "LAL")
-    star = request.args.get("star", "LeBron James")
-    return jsonify(safe_compute_onoff(team, star, SEASON))
+@app.route("/api/injuries")
+def api_injuries():
+    df = espn_injuries()
+    return jsonify(df.to_dict(orient="records"))
 
-@app.route("/analysis/lakers-grizzlies")
-def analysis_lal_mem():
-    # Your verified OUT lists for Oct 31, 2025
-    lal_inj = ["Adou Thiero", "Gabe Vincent", "Maxi Kleber", "LeBron James"]
-    mem_inj = ["Ty Jerome", "Scotty Pippen Jr.", "Brandon Clarke", "Zach Edey"]
+@app.route("/api/games")
+def api_games():
+    props = pull_dk_fd_player_props(markets=["player_points"])  # light call to get events
+    games = props[["event_id","home","away"]].drop_duplicates() if not props.empty else pd.DataFrame(columns=["event_id","home","away"])
+    out = []
+    for _, g in games.iterrows():
+        h = bl_h2h_last5(g["home"], g["away"])
+        if not h.empty:
+            out.append({
+                "event_id": g["event_id"],
+                "home": g["home"],
+                "away": g["away"],
+                "last5": h.to_dict(orient="records"),
+                "avg_home_pts": float(h["home_score"].mean()),
+                "avg_away_pts": float(h["away_score"].mean()),
+                "avg_margin_home": float(h["margin_home"].mean())
+            })
+        time.sleep(0.05)
+    return jsonify(out)
 
-    lal = roster("LAL"); mem = roster("MEM")
-    lal_proj = reproject_stats(lal, redistribute_minutes(lal, lal_inj), lal_inj)
-    mem_proj = reproject_stats(mem, redistribute_minutes(mem, mem_inj), mem_inj)
+@app.route("/api/props")
+def api_props():
+    date_str = request.args.get("date") or today_str()
+    markets = request.args.get("markets", "player_points,player_rebounds,player_assists,player_steals,player_blocks").split(",")
+    inj = espn_injuries()
+    props = pull_dk_fd_player_props(markets=markets)
+    if props.empty:
+        return jsonify([])
 
-    # Book lines we want to evaluate (edit freely)
-    lines = {
-        # Lakers
-        "Anthony Davis": {"pts": 25.5, "reb": 12.5, "ast": 3.5},
-        "Austin Reaves": {"pts": 16.5, "ast": 4.5, "reb": 3.5},
-        "Rui Hachimura": {"pts": 14.5, "reb": 5.5},
-        # Grizzlies
-        "Desmond Bane": {"pts": 24.5, "ast": 4.5},
-        "Jaren Jackson Jr.": {"pts": 21.5, "reb": 7.5},
-        "Ja Morant": {"pts": 25.5, "ast": 7.5},
-        "Santi Aldama": {"pts": 13.5, "reb": 6.5},
-    }
+    # last-10 per player appearing in props
+    players = sorted(set(props["player"].dropna().tolist()))
+    l10_map: Dict[str, pd.DataFrame] = {}
+    for p in players:
+        info = bl_search_player(p)
+        l10_map[p] = bl_player_last_n_stats(info["id"], n=10) if info else pd.DataFrame()
+        time.sleep(0.05)
 
-    candidates = []
-    def add(name, stat, sigma):
-        proj = (lal_proj.get(name) or mem_proj.get(name))
-        if not proj: return
-        if stat not in lines.get(name, {}): return
-        line = lines[name][stat]
-        mean = proj[stat]
-        prob = prob_over_normal(mean, line, sigma=sigma)
-        edge = round(mean - line, 2)
-        candidates.append({
-            "player": name, "stat": stat, "proj": round(mean,2),
-            "line": line, "prob_over": round(prob,3), "edge": edge
-        })
+    # score each prop
+    scored = []
+    for _, r in props.iterrows():
+        l10 = l10_map.get(r["player"], pd.DataFrame())
+        sc = predict_and_score(r, l10)
+        row = r.to_dict()
+        row.update(sc)
+        # attach player injury flag
+        pinj = inj[inj["player"]==r["player"]]
+        if not pinj.empty:
+            row["injury_status"] = pinj.iloc[0]["status"]
+            row["injury_comment"] = pinj.iloc[0]["comment"]
+        else:
+            row["injury_status"] = None
+            row["injury_comment"] = None
+        scored.append(row)
 
-    # tune sigmas by stat/role
-    add("Anthony Davis","reb", 2.8)
-    add("Anthony Davis","pts", 4.5)
-    add("Austin Reaves","ast", 2.6)
-    add("Rui Hachimura","pts", 3.6)
+    ranked = pd.DataFrame(scored).sort_values(["score","ev_per_$","hit_prob"], ascending=False)
+    ranked.to_csv(os.path.join(SAVE_DIR, f"ranked_props_{date_str}.csv"), index=False)
 
-    add("Desmond Bane","pts", 4.0)
-    add("Jaren Jackson Jr.","pts", 4.0)
-    add("Ja Morant","pts", 4.5)
-    add("Santi Aldama","reb", 2.8)
-
-    candidates.sort(key=lambda x: x["edge"], reverse=True)
-
-    vm = {
-        "meta": {"date": GAME["date"], "tipoff": GAME["tipoff"], "away_team": "LAL", "home_team": "MEM"},
-        "picks": candidates[:10],
-        "onoff": [
-            safe_compute_onoff("LAL", "LeBron James", SEASON),
-            safe_compute_onoff("MEM", "Ja Morant", SEASON),
-        ],
-        # Optional: if you wire the PDF injury parser later, pass injuries here
-        "injuries": {"LAL": [{"player": n, "status": "OUT", "notes": ""} for n in lal_inj],
-                     "MEM": [{"player": n, "status": "OUT", "notes": ""} for n in mem_inj]},
-    }
-    return render_template("analysis.html", vm=vm)
+    topk = int(request.args.get("topk", 100))
+    return jsonify(ranked.head(topk).to_dict(orient="records"))
 
 # healthcheck
 @app.route("/healthz")
-def healthz(): return "ok", 200
+def healthz():
+    return "ok", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
-
