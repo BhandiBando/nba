@@ -313,8 +313,8 @@ def api_debug():
 @app.route("/healthz")
 def healthz():
     return "ok", 200
-@app.route("/api/debug")
-def api_debug():
+@app.route("/api/debug", endpoint="debug_status")
+def debug_status():
     key_is_set = bool(os.getenv("ODDS_API_KEY"))
     try:
         r = requests.get(
@@ -333,6 +333,7 @@ def api_debug():
             "odds_api_key_present": key_is_set,
             "error": f"request_failed: {e}"
         }), 502
+
 
 
 # ---------- Entrypoint ----------
